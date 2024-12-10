@@ -1,4 +1,7 @@
+import os
 import pygame
+import chess.engine
+
 
 def cut_spritesheet(sheet_path, sprites_per_row, sprites_per_column):
     sprite_sheet = pygame.image.load(sheet_path)
