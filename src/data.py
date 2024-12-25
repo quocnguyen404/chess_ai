@@ -2,8 +2,6 @@ import pygame
 import os
 import utils
 
-
-
 class GameResource:
     def __init__(self):
         self.sprites_per_row = 6

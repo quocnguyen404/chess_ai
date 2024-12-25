@@ -25,28 +25,6 @@ class Board:
 
     def is_game_over(self):
         return self.board.is_game_over()
-
-    def get_result(self):
-        if(self.board.is_checkmate()):
-            return "Checkmate"
-        elif (self.board.is_stalemate()):
-            return "Stalemate"
-        elif (self.board.is_insufficient_material()):
-            return "Insufficient material"
-        elif (self.board.is_seventyfive_moves()):
-            return "Seventyfive moves"
-        elif (self.board.is_fivefold_repetition()):
-            return "Fivefold repetition"
-        elif (self.board.is_fifty_moves()):
-            return "Fifty moves"
-        elif (self.board.can_claim_threefold_repetition()):
-            return "Threefold repetition"
-        elif (self.board.is_variant_win()):
-            return "Variant win"
-        elif (self.board.is_variant_loss()):
-            return "Variant loss"
-        elif (self.board.is_variant_draw()):
-            return "Variant draw"
         
     def get_square_index(self, square):
         row = 7 - (square // 8) if self.facing_color != chess.BLACK else (square // 8)

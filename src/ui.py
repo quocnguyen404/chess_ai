@@ -2,6 +2,8 @@ import pygame
 
 BACKGROUND_COLOR = (36, 44, 57)
 WHITE_COL = (255, 255, 255)
+BUTTON_COL1 = (0, 150, 0)
+BUTTON_COL2 = (150, 0, 0)
 
 class Menu:
     def __init__(self, screen, title, width, height, game):
@@ -11,30 +13,55 @@ class Menu:
         self.height = height
         self.font = pygame.font.SysFont('Arial', 36)
         self.title_font = pygame.font.SysFont('Arial', 48, bold=True)
-        
-        self.play_button_rect = pygame.Rect(width // 2 - 100, height // 2 - 50, 200, 50)
-        self.exit_button_rect = pygame.Rect(width // 2 - 100, height // 2 + 20, 200, 50)
-        
-        self.play_text = self.font.render("Play", True, (255, 255, 255))
-        self.exit_text = self.font.render("Exit", True, (255, 255, 255))
 
+        center = (width // 2, height // 2)
         self.title_text = self.title_font.render(title, True, (255, 255, 255))
-        self.title_rect = self.title_text.get_rect(center=(width // 2, height // 4))
-        
+        self.title_rect = self.title_text.get_rect(center=(center[0], center[1] - 220))
+
+        case1_btn_rect = pygame.Rect(center[0] - 100, center[1] - 150, 200, 50)
+        case2_btn_rect = pygame.Rect(center[0] - 100, center[1] - 80, 200, 50)
+        case3_btn_rect = pygame.Rect(center[0] - 100, center[1] - 10, 200, 50)
+        case4_btn_rect = pygame.Rect(center[0] - 100, center[1] + 60, 200, 50)
+        case5_btn_rect = pygame.Rect(center[0] - 100, center[1] + 130, 200, 50)
+        self.btns = [
+            case1_btn_rect,
+            case2_btn_rect,
+            case3_btn_rect,
+            case4_btn_rect,
+            case5_btn_rect,
+        ]
+        self.exit_btn_rect = pygame.Rect(center[0] - 100, center[1] + 200, 200, 50)
+
+        case1_text = self.font.render("Dum vs Dum", True, WHITE_COL)
+        case2_text = self.font.render("Dum vs Inter", True, WHITE_COL)
+        case3_text = self.font.render("Inter vs Inter", True, WHITE_COL)
+        case4_text = self.font.render("Advan vs Inter", True, WHITE_COL)
+        case5_text = self.font.render("Sf vs Sf", True, WHITE_COL)
+        self.cases_texts = [
+            case1_text,
+            case2_text,
+            case3_text,
+            case4_text,
+            case5_text,
+        ]
+        self.exit_text = self.font.render("Exit", True, WHITE_COL)
         self.in_menu = True
 
     def render(self):
         if self.in_menu:
             self.screen.fill(BACKGROUND_COLOR)
-            
             self.screen.blit(self.title_text, self.title_rect)
 
-            pygame.draw.rect(self.screen, (0, 150, 0), self.play_button_rect)
-            pygame.draw.rect(self.screen, (150, 0, 0), self.exit_button_rect)
+            for i, btn in enumerate(self.btns):
+                pygame.draw.rect(self.screen, BUTTON_COL1, btn)
+                text_surface = self.cases_texts[i]
+                text_rect = text_surface.get_rect(center=btn.center)
+                self.screen.blit(text_surface, text_rect)
+                
+            pygame.draw.rect(self.screen, BUTTON_COL2, self.exit_btn_rect)
+            exit_text_rect = self.exit_text.get_rect(center=self.exit_btn_rect.center)
+            self.screen.blit(self.exit_text, exit_text_rect)
             
-            self.screen.blit(self.play_text, self.play_text.get_rect(center=self.play_button_rect.center))
-            self.screen.blit(self.exit_text, self.exit_text.get_rect(center=self.exit_button_rect.center))
-        
         pygame.display.flip()
 
     def handle_events(self, events):
@@ -42,11 +69,12 @@ class Menu:
         for event in events:
             if event.type == pygame.MOUSEBUTTONDOWN:
                 mouse_pos = pygame.mouse.get_pos()
-                if self.play_button_rect.collidepoint(mouse_pos):
-                    self.game.match_init()
-                    self.in_menu = False  # Exit menu
-                elif self.exit_button_rect.collidepoint(mouse_pos):
+                if self.exit_btn_rect.collidepoint(mouse_pos):
                     self.game.quit()
+                for i in range(len(self.btns)):
+                    if self.btns[i].collidepoint(mouse_pos):
+                        self.in_menu = False  # Exit menu
+                        self.game.pick_case(i)
 
     def is_in_menu(self):
         return self.in_menu
@@ -57,43 +85,66 @@ class InGameUI:
         self.players = players  # List of player objects or AI objects
         font_size = 25
         self.font = pygame.font.SysFont('Arial', font_size)
+        self.eg_font = pygame.font.SysFont('Arial', 50)
         self.game = game
 
         self.player1_text = self.font.render(f'{self.players[0].name}:', True, WHITE_COL)
         self.player2_text = self.font.render(f'{self.players[1].name}:', True, WHITE_COL)
-        self.text_offset = game.BOARD_OFFSET[0] - self.player1_text.get_width()
-        self.player1_pos = (self.text_offset, 0)
-        self.player2_pos = (self.text_offset, game.HEIGHT - font_size)
-        
-        # UI Positions
+        self.text1_offset = game.BOARD_OFFSET[0] - self.player1_text.get_width()
+        self.text2_offset = game.BOARD_OFFSET[0] - self.player2_text.get_width()
+        self.player1_pos = (self.text1_offset, game.HEIGHT - font_size - 50)
+        self.player2_pos = (self.text2_offset, 0)
 
-        # Setup initial state
+        btn_font = pygame.font.SysFont('Arial', 15)
+        self.reset_text = btn_font.render('Reset', True, WHITE_COL)
+        self.pause_text = btn_font.render('Pause', True, WHITE_COL)
 
-        # self.score_text = self.font.render(f"Score: {self.players[0].score} - {self.players[1].score}", True, (255, 255, 255))
+        self.reset_btn = pygame.Rect(0, 0, 50, 50)
+        self.pause_btn = pygame.Rect(0, 60, 50, 50)
         
     def render(self):
-
         self.screen.blit(self.player1_text, self.player1_pos)
         self.screen.blit(self.player2_text, self.player2_pos)
 
+        pygame.draw.rect(self.screen, BUTTON_COL1, self.reset_btn)
+
+        if self.game.pausing:
+            pygame.draw.rect(self.screen, BUTTON_COL2, self.pause_btn)
+        else:
+            pygame.draw.rect(self.screen, BUTTON_COL1, self.pause_btn)
+
+        self.screen.blit(self.reset_text, self.reset_text.get_rect(center=self.reset_btn.center))
+        self.screen.blit(self.pause_text, self.pause_text.get_rect(center=self.pause_btn.center))
+        self.screen.blit(self.turn_text, (0, self.game.HEIGHT // 2))
         if self.game.board.is_game_over():
             self.handle_game_over()
 
     def handle_game_over(self):
         if not self.game.board.is_game_over():
             return
-        message = self.game.board.get_result()
+        result = self.game.board.board.result()  # This will return '1-0', '0-1', or '1/2-1/2'
+        if result == '1-0':
+            message = f"{self.players[0].name} wins!"  # White wins
+        elif result == '0-1':
+            message = f"{self.players[1].name} wins!"  # Black wins
+        elif result == '1/2-1/2':
+            message = "It's a draw!"  # Draw condition
 
-        text = self.font.render(message, True, (255, 255, 255))
-        text_rect = text.get_rect(center=(self.WIDTH // 2, self.HEIGHT // 2))
+        text = self.eg_font.render(message, True, WHITE_COL)
+        text_rect = text.get_rect(center=(self.game.WIDTH // 2, self.game.HEIGHT // 2))
         self.screen.blit(text, text_rect)
 
         pygame.display.flip()
 
+    def handle_events(self, events):
+        for event in events:
+            if event.type == pygame.MOUSEBUTTONDOWN:
+                mouse_pos = pygame.mouse.get_pos()
+                if self.reset_btn.collidepoint(mouse_pos):
+                    self.game.reset()
+                elif self.pause_btn.collidepoint(mouse_pos):
+                    self.game.pause()
+
     def update_turn(self, turn):
         """Update the turn text based on the current player's turn."""
         self.turn_text = self.font.render(f"{self.players[turn].name}'s Turn", True, (255, 255, 255))
-
-    def update_score(self, player_1_score, player_2_score):
-        """Update the score display."""
-        # self.score_text = self.font.render(f"Score: {player_1_score} - {player_2_score}", True, (255, 255, 255))

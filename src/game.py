@@ -1,3 +1,4 @@
+import sys
 import pygame
 import time
 import random
@@ -9,9 +10,10 @@ from ui import *
 
 TITLE = 'Chét ây ai'
 class Game:
+    cases = None
     def __init__(self):
         #window config
-        self.BOARD_OFFSET = (200, 0)
+        self.BOARD_OFFSET = (300, 0)
         self.BOARD_WIDTH = 612
         self.BOARD_HEIGHT = 612
         self.WIDTH = self.BOARD_WIDTH + self.BOARD_OFFSET[0]
@@ -23,10 +25,21 @@ class Game:
         pygame.display.set_caption(TITLE)
         self.font = pygame.font.SysFont('Arial', 48)
 
+        Game.cases = [
+            [DummyAI(None, 'Dummy AI1'), DummyAI(None, 'Dummy AI2')],
+            [DummyAI(None, 'Dummy AI'), IntermediateAI(None, 'Intermediate AI')],
+            [IntermediateAI(None, 'Intermediate AI1'), IntermediateAI(None, 'Intermediate AI2')],
+            [AdvancedAI(None, 'Stockfish'), IntermediateAI(None, 'Group5')],
+            [AdvancedAI(None, 'Magnus Carlsen'), AdvancedAI(None, 'Hikaru Nakamura')],
+        ]
+
         #ui
         self.menu = Menu(self.screen, TITLE, self.WIDTH, self.HEIGHT, self)
         self.players = [None, None]
+
+        #flag
         self.running = True
+        self.pausing = False
 
         #time
         fps = 60
@@ -41,17 +54,15 @@ class Game:
         self.board = Board(self.BOARD_WIDTH, chess.WHITE, resource, self.BOARD_OFFSET)
 
         #PLAYER SETTING
-        self.turn = 0
-        
-        self.players = [AdvancedAI(chess.WHITE, 'AdvanceAI1'), AdvancedAI(chess.BLACK, 'AdvanceAI2')]
-        self.in_game_ui = InGameUI(self.screen, self.players, self)
 
-        #run
-        self.running = True
+        self.turn = 0
+        # self.players = [AdvancedAI(chess.WHITE, 'Stockfish'), AdvancedAI(chess.BLACK, 'Stockfish')]
+        self.in_game_ui = InGameUI(self.screen, self.players, self)
+        self.in_game_ui.update_turn(self.turn)
 
         #visualize
         self.animation_start_time = 0
-        self.animation_duration = 0.3
+        self.animation_duration = 0.5
         self.move_delay = 0.5
 
         self.is_animating = False
@@ -64,7 +75,6 @@ class Game:
     def run(self):
         while self.running:
             self.handle_input()
-            
             current_time = time.time()
             elapsed_time = current_time - self.last_update_time
 
@@ -75,13 +85,12 @@ class Game:
             self.render()
             self.render_clock.tick(self.render_rate)
         pygame.quit()
+        self.clear()
 
     def update(self, delta_time):
-        if self.menu.is_in_menu():
+        if self.menu.is_in_menu() or self.pausing:
             return
-        
-        if self.board.is_game_over() or not self.running:
-            self.quit()
+        if not self.running or self.board.is_game_over():
             return
         if self.is_animating:
             return
@@ -92,7 +101,7 @@ class Game:
         if self.menu.is_in_menu():
             self.menu.render()
             return
-
+        
         self.screen.fill(BACKGROUND_COLOR)
         self.board.render(self.screen, self.on_move_square)
         self.in_game_ui.render()
@@ -107,28 +116,39 @@ class Game:
         events = pygame.event.get()
         for event in events:
             key_pressed = pygame.key.get_pressed()
-            if event.type == QUIT :
+            if event.type == QUIT:
                 self.quit()
             elif key_pressed[K_ESCAPE]:
                 self.return_menu()
-            elif key_pressed[K_r]:
-                self.reset()
-        if self.menu.is_in_menu:
+
+        if self.menu.in_menu:
             self.menu.handle_events(events)
+        else:
+            self.in_game_ui.handle_events(events)
 
     def return_menu(self):
-        for player in self.players:
-            player.clear()
         self.menu.in_menu = True
 
     def quit(self):
         self.running = False  # Stop the game loop
         for player in self.players:
-            player.clear()
+            if player:
+                player.clear()
+
+    def pause(self):
+        self.pausing = not self.pausing
     
     def reset(self):
-        #TODO reset match
-        pass
+        self.match_init()
+
+    def pick_case(self, case_index):
+        selected_case = Game.cases[case_index][:]
+        random.shuffle(selected_case)
+        white_player, black_player = selected_case
+        white_player.color, black_player.color = chess.WHITE, chess.BLACK
+        self.players = [white_player, black_player]
+        self.match_init()
+        
 
     def handle_players_turn(self):
         current_time = time.time()
@@ -149,8 +169,8 @@ class Game:
         self.screen.blit(self.piece_image, (current_x, current_y))
 
         if t >= 1.0:
-            self.is_animating = False
             self.board.update_board_state_after_animation()
+            self.is_animating = False
 
     def start_animation(self, move):
         self.is_animating = True
@@ -167,3 +187,12 @@ class Game:
     
     def change_turn(self):
         self.turn = (self.turn + 1) % len(self.players)
+        self.in_game_ui.update_turn(self.turn)
+
+    def clear(self):
+        for kaces in Game.cases:
+            kaces[0].clear()
+            kaces[1].clear()
+
+    def __del__(self):
+        self.clear()
