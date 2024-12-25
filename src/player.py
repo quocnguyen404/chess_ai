@@ -103,8 +103,16 @@ class AdvancedAI(AI):
         return result.move
     
     def clear(self):
-        if hasattr(self, 'engine') and self.engine:
-            self.engine.quit()
-    
+        if hasattr(self, 'engine') and self.engine is not None:
+            try:
+                self.engine.quit()
+            except Exception as e:
+                print(f"Error during engine quit: {e}")
+            finally:
+                self.engine = None
+
     def __del__(self):
-        self.clear()
+        try:
+            self.clear()
+        except Exception as e:
+            print(f"Error during __del__: {e}")
