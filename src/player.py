@@ -1,5 +1,6 @@
 import random
 import chess
+import pygame
 
 PIECE_VALUES = {
     chess.PAWN: 1,
@@ -9,14 +10,6 @@ PIECE_VALUES = {
     chess.QUEEN: 9,
     chess.KING: 100,  
 }
-
-# class Player:
-#     def __init__(self, color, name):
-#         self.name = name
-#         self.color = color
-
-#     def get_move(self, board):
-#         pass
 
 def count_material(board: chess.Board, color: chess.Color) -> int:
     material = 0
@@ -35,17 +28,71 @@ def evaluate_board(board: chess.Board) -> int:
     black_material = count_material(board, chess.BLACK)
     return white_material - black_material
 
-class AI:
+class Player:
     def __init__(self, color, name):
         self.name = name
         self.color = color
+
+    def get_move(self, board):
+        pass
+
+class HumanPlayer(Player):
+    def __init__(self, color, name):
+        super().__init__(color, name)
+        self.selected_square = None
+        self.move_made = None
+
+    def get_move(self, board):
+        move = self.move_made
+        self.move_made = None
+        return move
+
+    def handle_events(self, events, board, board_obj):
+        for event in events:
+            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:  # Left click
+                mouse_pos = pygame.mouse.get_pos()
+                clicked_square = self.get_square_from_mouse_pos(mouse_pos, board)
+                
+                if clicked_square is not None:
+                    piece = board_obj.piece_at(clicked_square)
+                    
+                    # If a piece of the correct color is selected
+                    if self.selected_square is None and piece and piece.color == self.color:
+                        self.selected_square = clicked_square
+                    
+                    # If a piece is already selected, attempt a move
+                    elif self.selected_square is not None:
+                        move = chess.Move(self.selected_square, clicked_square)
+                        if move in board_obj.legal_moves:
+                            self.move_made = move
+                            self.selected_square = None  # Reset selection after move
+                        else:
+                            self.selected_square = None  # Invalid move; reset selection
+
+    def get_square_from_mouse_pos(self, mouse_pos, board):
+        x, y = mouse_pos
+        for square in chess.SQUARES:
+            square_pos = board.get_square_position(square)
+            square_rect = pygame.Rect(
+                square_pos[0], square_pos[1], board.square_size, board.square_size
+            )
+            if square_rect.collidepoint(x, y):
+                return square
+        return None
     
+    def clear(self):
+        pass
+
+
+class AI(Player):
+    def __init__(self, color, name):
+        super().__init__(color, name)
+
     def get_move(self, board):
         pass
 
     def clear(self):
         pass
-
 
 class DummyAI(AI):
     def __init__(self, color, name):

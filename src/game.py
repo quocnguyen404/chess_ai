@@ -8,7 +8,7 @@ from pygame.locals import *
 from player import *
 from ui import *
 
-TITLE = 'Chét ây ai'
+TITLE = 'Chess'
 class Game:
     cases = None
     def __init__(self):
@@ -26,11 +26,11 @@ class Game:
         self.font = pygame.font.SysFont('Arial', 48)
 
         Game.cases = [
-            [DummyAI(None, 'Dummy AI1'), DummyAI(None, 'Dummy AI2')],
-            [DummyAI(None, 'Dummy AI'), IntermediateAI(None, 'Intermediate AI')],
-            [IntermediateAI(None, 'Intermediate AI1'), IntermediateAI(None, 'Intermediate AI2')],
-            [AdvancedAI(None, 'Stockfish'), IntermediateAI(None, 'Group5')],
-            [AdvancedAI(None, 'Magnus Carlsen'), AdvancedAI(None, 'Hikaru Nakamura')],
+            [HumanPlayer(chess.WHITE, 'Player'), DummyAI(chess.BLACK, 'Dummy AI2')],
+            [DummyAI(chess.WHITE, 'Dummy AI'), IntermediateAI(chess.BLACK, 'Intermediate AI')],
+            [IntermediateAI(chess.WHITE, 'Intermediate AI1'), IntermediateAI(chess.BLACK, 'Intermediate AI2')],
+            [AdvancedAI(chess.WHITE, 'Stockfish'), IntermediateAI(chess.BLACK, 'Group5')],
+            [AdvancedAI(chess.WHITE, 'Magnus Carlsen'), AdvancedAI(chess.BLACK, 'Hikaru Nakamura')],
         ]
 
         #ui
@@ -40,6 +40,7 @@ class Game:
         #flag
         self.running = True
         self.pausing = False
+        self.facing_color = chess.WHITE
 
         #time
         fps = 60
@@ -51,12 +52,10 @@ class Game:
     def match_init(self):
         #board initialize
         resource = GameResource()
-        self.board = Board(self.BOARD_WIDTH, chess.WHITE, resource, self.BOARD_OFFSET)
+        self.board = Board(self.BOARD_WIDTH, self.facing_color, resource, self.BOARD_OFFSET)
 
-        #PLAYER SETTING
 
         self.turn = 0
-        # self.players = [AdvancedAI(chess.WHITE, 'Stockfish'), AdvancedAI(chess.BLACK, 'Stockfish')]
         self.in_game_ui = InGameUI(self.screen, self.players, self)
         self.in_game_ui.update_turn(self.turn)
 
@@ -101,9 +100,14 @@ class Game:
         if self.menu.is_in_menu():
             self.menu.render()
             return
-        
+
         self.screen.fill(BACKGROUND_COLOR)
-        self.board.render(self.screen, self.on_move_square)
+        
+        selected_square = None
+        if isinstance(self.players[self.turn], HumanPlayer):
+            selected_square = self.players[self.turn].selected_square
+
+        self.board.render(self.screen, self.on_move_square, selected_square=selected_square)
         self.in_game_ui.render()
 
         if self.is_animating:
@@ -125,6 +129,9 @@ class Game:
             self.menu.handle_events(events)
         else:
             self.in_game_ui.handle_events(events)
+            if isinstance(self.players[self.turn], HumanPlayer):
+                self.players[self.turn].handle_events(events, self.board, self.board.board)
+
 
     def return_menu(self):
         self.menu.in_menu = True
@@ -147,17 +154,28 @@ class Game:
         white_player, black_player = selected_case
         white_player.color, black_player.color = chess.WHITE, chess.BLACK
         self.players = [white_player, black_player]
+        if isinstance(black_player, HumanPlayer):
+            self.facing_color = chess.BLACK
         self.match_init()
+            
         
-
     def handle_players_turn(self):
-        current_time = time.time()
-        if current_time - self.last_move_time >= self.move_delay:
-            move = self.players[self.turn].get_move(self.board.board)
-            self.start_animation(move)
-            self.board.move(move)
-            self.last_move_time = current_time
-            self.change_turn()
+        current_player = self.players[self.turn]
+        
+        if isinstance(current_player, HumanPlayer):
+            move = current_player.get_move(self.board.board)
+            if move:
+                self.board.move(move)
+                self.start_animation(move)
+                self.change_turn()
+        else:
+            current_time = time.time()
+            if current_time - self.last_move_time >= self.move_delay:
+                move = current_player.get_move(self.board.board)
+                self.start_animation(move)
+                self.board.move(move)
+                self.last_move_time = current_time
+                self.change_turn()
 
     def render_animation(self):
         elapsed_time = time.time() - self.animation_start_time

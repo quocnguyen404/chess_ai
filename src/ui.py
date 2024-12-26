@@ -32,7 +32,7 @@ class Menu:
         ]
         self.exit_btn_rect = pygame.Rect(center[0] - 100, center[1] + 200, 200, 50)
 
-        case1_text = self.font.render("Dum vs Dum", True, WHITE_COL)
+        case1_text = self.font.render("Player vs Dum", True, WHITE_COL)
         case2_text = self.font.render("Dum vs Inter", True, WHITE_COL)
         case3_text = self.font.render("Inter vs Inter", True, WHITE_COL)
         case4_text = self.font.render("Advan vs Inter", True, WHITE_COL)

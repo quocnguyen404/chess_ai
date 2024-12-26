@@ -44,7 +44,7 @@ class Board:
             return self.piece_images[piece.symbol()]
         return None
 
-    def render(self, screen, movesquare):
+    def render(self, screen, movesquare, selected_square=None):
         for square in chess.SQUARES:
             self.render_square(screen, square)
             if movesquare != square:
@@ -54,11 +54,18 @@ class Board:
                     piece_position = self.get_square_position(square)
                     
                     screen.blit(piece_image, piece_position)
-
-                    #Debug text piece infor
+                    # Debug text piece infor
                     # text_surface = self.font.render(piece.symbol(), True, (0, 0, 0))
                     # screen.blit(text_surface, piece_position)
 
+        if selected_square is not None:
+            (row, col) = self.get_square_index(selected_square)
+            rect = pygame.Rect(
+                col * self.square_size + self.offset[0], row * self.square_size + self.offset[1],
+                self.square_size, self.square_size
+            )
+            pygame.draw.rect(screen, (255, 0, 0), rect, 3)  # Draw a red outline
+                    
     def render_square(self, screen, square):
         (row, col) = self.get_square_index(square)
         color = self.colors[(row + col) % 2]
