@@ -24,3 +24,4 @@ def cut_spritesheet(sheet_path, sprites_per_row, sprites_per_column):
             sprite_images.append(sprite)
     
     return sprite_images
+

@@ -35,8 +35,8 @@ class Menu:
 
         case1_text = self.font.render("Player vs AI", True, WHITE_COL)
         case2_text = self.font.render("Dum vs Inter", True, WHITE_COL)
-        case3_text = self.font.render("Advan vs Advan", True, WHITE_COL)
-        case4_text = self.font.render("Advan vs Inter", True, WHITE_COL)
+        case3_text = self.font.render("Advan vs Inter", True, WHITE_COL)
+        case4_text = self.font.render("Advan vs Sf", True, WHITE_COL)
         case5_text = self.font.render("Sf vs Sf", True, WHITE_COL)
         self.cases_texts = [
             case1_text,
