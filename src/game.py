@@ -10,7 +10,6 @@ from ui import *
 
 TITLE = 'Chess'
 class Game:
-    cases = None
     def __init__(self):
         #window config
         self.BOARD_OFFSET = (300, 0)
@@ -25,16 +24,17 @@ class Game:
         pygame.display.set_caption(TITLE)
         self.font = pygame.font.SysFont('Arial', 48)
 
-        Game.cases = [
-            [HumanPlayer(chess.WHITE, 'Player'), DummyAI(chess.BLACK, 'Dummy AI2')],
+        self.cases = [
+            [HumanPlayer(chess.WHITE, 'Player'), DummyAI(chess.BLACK, 'DummyAI')],
             [DummyAI(chess.WHITE, 'Dummy AI'), IntermediateAI(chess.BLACK, 'Intermediate AI')],
             [IntermediateAI(chess.WHITE, 'Intermediate AI1'), IntermediateAI(chess.BLACK, 'Intermediate AI2')],
-            [AdvancedAI(chess.WHITE, 'Stockfish'), IntermediateAI(chess.BLACK, 'Group5')],
-            [AdvancedAI(chess.WHITE, 'Magnus Carlsen'), AdvancedAI(chess.BLACK, 'Hikaru Nakamura')],
+            [AdvancedAI(chess.WHITE, 'AdvanceAI'), IntermediateAI(chess.BLACK, 'IntermediateAI')],
+            [Stockfish(chess.WHITE, 'Stockfish1'), Stockfish(chess.BLACK, 'Stockfish2')],
         ]
 
         #ui
         self.menu = Menu(self.screen, TITLE, self.WIDTH, self.HEIGHT, self)
+        self.pick_level = PickLevelUI(self.screen, self.WIDTH, self.HEIGHT, self)
         self.players = [None, None]
 
         #flag
@@ -53,7 +53,6 @@ class Game:
         #board initialize
         resource = GameResource()
         self.board = Board(self.BOARD_WIDTH, self.facing_color, resource, self.BOARD_OFFSET)
-
 
         self.turn = 0
         self.in_game_ui = InGameUI(self.screen, self.players, self)
@@ -87,7 +86,7 @@ class Game:
         self.clear()
 
     def update(self, delta_time):
-        if self.menu.is_in_menu() or self.pausing:
+        if self.menu.in_menu or self.pick_level.in_pick or self.pausing:
             return
         if not self.running or self.board.is_game_over():
             return
@@ -97,8 +96,11 @@ class Game:
         self.handle_players_turn()
 
     def render(self):
-        if self.menu.is_in_menu():
+        if self.menu.in_menu:
             self.menu.render()
+            return
+        if self.pick_level.in_pick:
+            self.pick_level.render()
             return
 
         self.screen.fill(BACKGROUND_COLOR)
@@ -127,14 +129,16 @@ class Game:
 
         if self.menu.in_menu:
             self.menu.handle_events(events)
+        elif self.pick_level.in_pick:
+            self.pick_level.handle_events(events)
         else:
             self.in_game_ui.handle_events(events)
             if isinstance(self.players[self.turn], HumanPlayer):
                 self.players[self.turn].handle_events(events, self.board, self.board.board)
 
-
     def return_menu(self):
         self.menu.in_menu = True
+        self.pick_level.in_pick = True
 
     def quit(self):
         self.running = False  # Stop the game loop
@@ -146,19 +150,41 @@ class Game:
         self.pausing = not self.pausing
     
     def reset(self):
+        self.shuffle_players(self.players)
         self.match_init()
 
     def pick_case(self, case_index):
-        selected_case = Game.cases[case_index][:]
+        if case_index == 0:
+            self.players[0] = self.cases[0][0]
+        else:
+            self.pick_level.in_pick = False
+            selected_case = self.cases[case_index][:]
+            self.shuffle_players(selected_case)
+            self.match_init()
+
+    def handle_pick_level(self, level):
+        if level == 0:
+            self.players[1] = self.cases[0][1] #Dummy AI
+        elif level == 1:
+            self.players[1] = self.cases[1][1] #Intermidian AI
+        elif level == 2:
+            self.players[1] = self.cases[3][0] #Advance AI
+        elif level == 3:
+            self.players[1] = self.cases[4][0]
+        self.shuffle_players(self.players)
+        self.match_init()
+
+
+    def shuffle_players(self, selected_case):
         random.shuffle(selected_case)
         white_player, black_player = selected_case
         white_player.color, black_player.color = chess.WHITE, chess.BLACK
         self.players = [white_player, black_player]
         if isinstance(black_player, HumanPlayer):
             self.facing_color = chess.BLACK
-        self.match_init()
-            
-        
+        else:
+            self.facing_color = chess.WHITE
+
     def handle_players_turn(self):
         current_player = self.players[self.turn]
         
@@ -208,9 +234,11 @@ class Game:
         self.in_game_ui.update_turn(self.turn)
 
     def clear(self):
-        for kaces in Game.cases:
-            kaces[0].clear()
-            kaces[1].clear()
+        for kaces in self.cases:
+            if isinstance(kaces[0], Player):
+                kaces[0].clear()
+            if isinstance(kaces[1], Player):
+                kaces[1].clear()
 
     def __del__(self):
         self.clear()
