@@ -21,9 +21,98 @@ class GameResource:
             images[piece] = pygame.transform.smoothscale(images[piece], (square_size, square_size))
         
         return images
-    
 
-opening_book = {
+# Rook directions
+ROOK_DIRECTIONS = [-8, 8, -1, 1]
+
+# Bishop directions (diagonals)
+BISHOP_DIRECTIONS = [-9, 9, -7, 7]
+
+# Knight moves (in 'L' shape)
+KNIGHT_MOVES = [-17, -15, -10, -6, 6, 10, 15, 17]
+
+# King moves (one square in any direction)
+KING_MOVES = [-9, -8, -7, -1, 1, 7, 8, 9]
+
+PIECE_VALUES = {
+    chess.PAWN: 1,
+    chess.KNIGHT: 3,
+    chess.BISHOP: 3,
+    chess.ROOK: 5,
+    chess.QUEEN: 9,
+    chess.KING: 100,  
+}
+
+PIECE_SQUARE_TABLES = {
+    chess.PAWN: [
+        # White pawn piece-square table (Pawn starts from the second rank)
+        [0, 0, 0, 0, 0, 0, 0, 0],
+        [50, 50, 50, 50, 50, 50, 50, 50],
+        [10, 10, 20, 30, 30, 20, 10, 10],
+        [5, 5, 10, 25, 25, 10, 5, 5],
+        [0, 0, 0, 20, 20, 0, 0, 0],
+        [5, -5, -10, 0, 0, -10, -5, 5],
+        [5, 10, 10, -20, -20, 10, 10, 5],
+        [0, 0, 0, 0, 0, 0, 0, 0],  # Black pawns have inverted piece-square table
+    ],
+    chess.KNIGHT: [
+        # White knight piece-square table
+        [-50, -40, -30, -30, -30, -30, -40, -50],
+        [-40, -20, 0, 5, 5, 0, -20, -40],
+        [-30, 5, 10, 15, 15, 10, 5, -30],
+        [-30, 5, 15, 20, 20, 15, 5, -30],
+        [-30, 5, 10, 15, 15, 10, 5, -30],
+        [-40, -20, 0, 5, 5, 0, -20, -40],
+        [-50, -40, -30, -30, -30, -30, -40, -50],
+        [-50, -40, -30, -30, -30, -30, -40, -50],  # Black knight piece-square table is same but reversed
+    ],
+    chess.BISHOP: [
+        # White bishop piece-square table
+        [-20, -10, -10, -10, -10, -10, -10, -20],
+        [-10, 0, 5, 10, 10, 5, 0, -10],
+        [-10, 5, 10, 15, 15, 10, 5, -10],
+        [-10, 10, 15, 20, 20, 15, 10, -10],
+        [-10, 5, 10, 15, 15, 10, 5, -10],
+        [-10, 0, 5, 10, 10, 5, 0, -10],
+        [-20, -10, -10, -10, -10, -10, -10, -20],
+        [-20, -10, -10, -10, -10, -10, -10, -20],  # Black bishop piece-square table is same but reversed
+    ],
+    chess.ROOK: [
+        # White rook piece-square table
+        [0, 0, 0, 5, 5, 0, 0, 0],
+        [5, 10, 10, 10, 10, 10, 10, 5],
+        [0, 10, 10, 10, 10, 10, 10, 0],
+        [0, 5, 5, 10, 10, 5, 5, 0],
+        [0, 5, 5, 10, 10, 5, 5, 0],
+        [0, 5, 5, 5, 5, 5, 5, 0],
+        [0, 0, 0, 0, 0, 0, 0, 0],
+        [0, 0, 0, 0, 0, 0, 0, 0],  # Black rook piece-square table is same but reversed
+    ],
+    chess.QUEEN: [
+        # White queen piece-square table
+        [-20, -10, -10, -5, -5, -10, -10, -20],
+        [-10, 0, 5, 5, 5, 5, 0, -10],
+        [-10, 5, 10, 10, 10, 10, 5, -10],
+        [-5, 5, 10, 15, 15, 10, 5, -5],
+        [-5, 5, 10, 15, 15, 10, 5, -5],
+        [-10, 0, 5, 5, 5, 5, 0, -10],
+        [-20, -10, -10, -5, -5, -10, -10, -20],
+        [-20, -10, -10, -5, -5, -10, -10, -20],  # Black queen piece-square table is same but reversed
+    ],
+    chess.KING: [
+        # White king piece-square table
+        [-30, -40, -50, -60, -60, -50, -40, -30],
+        [-30, -40, -50, -60, -60, -50, -40, -30],
+        [-30, -40, -50, -60, -60, -50, -40, -30],
+        [-30, -40, -50, -60, -60, -50, -40, -30],
+        [-20, -30, -40, -50, -50, -40, -30, -20],
+        [-10, -20, -30, -40, -40, -30, -20, -10],
+        [0, -10, -20, -30, -30, -20, -10, 0],
+        [20, 20, 0, 0, 0, 0, 20, 20],  # Black king piece-square table is same but reversed
+    ]
+}
+
+OPENING_BOOK = {
     "startpos": [
         chess.Move.from_uci("e2e4"),  # King's Pawn Opening: 1. e4
         chess.Move.from_uci("e7e5"),  # Black's response: 1... e5

@@ -2,16 +2,12 @@ import random
 import time
 import chess
 import pygame
-from data import opening_book
+from data import *
 
-PIECE_VALUES = {
-    chess.PAWN: 1,
-    chess.KNIGHT: 3,
-    chess.BISHOP: 3,
-    chess.ROOK: 5,
-    chess.QUEEN: 9,
-    chess.KING: 100,  
-}
+def square_is_on_board(square):
+    # Check if the square index is within the valid range (0 to 63)
+    return 0 <= square <= 63
+
 
 def count_material(board: chess.Board, color: chess.Color) -> int:
     material = 0
@@ -74,7 +70,6 @@ class HumanPlayer(Player):
     
     def clear(self):
         pass
-
 
 class AI(Player):
     def __init__(self, color, name):
@@ -183,39 +178,73 @@ class IntermediateAI(AI):
         black_king_safety = abs(chess.square_rank(black_king) - 3) + abs(chess.square_file(black_king) - 3)
         return black_king_safety - white_king_safety
 
-CENTER_8_SQUARES = {
-    chess.C4, chess.C5,
-    chess.D4, chess.D5,
-    chess.E4, chess.E5,
-    chess.F4, chess.F5
-}
-
 class AdvancedAI(AI):
     def __init__(self, color, name):
         super().__init__(color, name)
         self.base_max_depth = 5  # Max search depth
         self.eval_cache = {}  # Cache for evaluated positions
-        self.base_max_move_time_cal = 4
+        self.base_max_move_time_cal = 2
 
-    def get_move(self, board: chess.Board):
-        move_count = board.fullmove_number
-        remaining_pieces = sum(1 for sq in chess.SQUARES if board.piece_at(sq))
-        self.max_depth = self.base_max_depth + self.adjust_depth(move_count, remaining_pieces)
-        self.max_move_time_cal = self.base_max_move_time_cal + self.adjust_time(move_count, remaining_pieces)
+    def get_weights(self, board):
+        total_material = sum(len(board.pieces(pt, chess.WHITE)) + len(board.pieces(pt, chess.BLACK)) for pt in PIECE_VALUES)
+        
+        if total_material < 14:  # Endgame
+            return {
+                "material": 1.5,
+                "king_activity": 0.5,
+                "pawn_structure": 0.5,
+                "pawn_majority": 0.8,
+                "passed_pawn": 1.2,
+                "center_control": 0.3,
+                "piece_mobility": 0.2,
+                "rook_activity": 0.7,
+                "piece_coordination": 0.6,
+                "hanging_pieces": 1.2,
+                "knight_outposts": 0.7,
+                "bishop_pair": 0.5,
+                "tempo": 0.3,
+                "open_files": 0.4,
+                "weak_squares": 0.5,
+                "king_safety": 1.0,
+            }
+        else:  # Opening or Middlegame
+            return {
+                "material": 1.5,
+                "king_activity": 0.5,
+                "pawn_structure": 0.8,
+                "pawn_majority": 0.6,
+                "passed_pawn": 0.8,
+                "center_control": 0.8,
+                "piece_mobility": 0.6,
+                "rook_activity": 0.5,
+                "piece_coordination": 0.6,
+                "hanging_pieces": 1.2,
+                "knight_outposts": 0.7,
+                "bishop_pair": 0.6,
+                "tempo": 0.4,
+                "open_files": 0.4,
+                "weak_squares": 0.5,
+                "king_safety": 1.0,
+            }
 
+    def get_move(self, board):
         best_move = None
         best_value = float('-inf') if board.turn == chess.WHITE else float('inf')
+
         start_time = time.time()
-        for depth in range(1, self.max_depth + 1):
-            if time.time() - start_time > self.max_move_time_cal:  # Time limit for move calculation
+
+        for depth in range(1, self.base_max_depth + 1):
+            if time.time() - start_time > self.base_max_move_time_cal:
                 break
 
             current_best_move = None
             for move in self.order_moves(board):
+                if time.time() - start_time > self.base_max_move_time_cal:
+                    break
                 board.push(move)
                 eval = self.alpha_beta(board, depth, float('-inf'), float('inf'), board.turn == chess.WHITE)
                 board.pop()
-                
+
                 if board.turn == chess.WHITE and eval > best_value:
                     best_value = eval
                     current_best_move = move
@@ -228,523 +257,889 @@ class AdvancedAI(AI):
 
         return best_move
 
-    def adjust_depth(self, move_count, remaining_pieces):
-        # Early game (move count <= 20) with many pieces
-        if move_count <= 20 and remaining_pieces > 20:  
-            return 2  # Medium depth for better planning
-        # Midgame (move count 20-40) with some pieces left
-        elif 20 < move_count <= 40 and remaining_pieces > 10:  
-            return 3  # Deeper depth for more complex analysis
-        # Endgame (move count > 40) with few pieces left
-        elif remaining_pieces <= 10:  
-            return 4  # Shallow depth but focus on precise tactics
-        # Default case (late game, fewer pieces)
-        return 1
+    def alpha_beta(self, board, depth, alpha, beta, maximizing_player):
+        board_fen = board.fen()  # Using FEN as cache key
+        if board_fen in self.eval_cache:
+            return self.eval_cache[board_fen]  # Return cached evaluation
 
-    def adjust_time(self, move_count, remaining_pieces):
-        # Early game, many pieces
-        if move_count <= 20 and remaining_pieces > 20:  
-            return 1  # Faster time allocation for opening moves
-        # Midgame, fewer pieces
-        elif 20 < move_count <= 40 and remaining_pieces > 10:  
-            return 2  # Slightly longer to think about exchanges
-        # Late game, few pieces left
-        elif remaining_pieces <= 10:  
-            return 3  # More time for precise endgame tactics
-        # Default time allocation
-        return 1
+        if depth == 0 or board.is_game_over():
+            evaluation = self.evaluate_board(board)
+            self.eval_cache[board_fen] = evaluation  # Cache evaluation
+            return evaluation
+
+        legal_moves = list(board.legal_moves)
+        if maximizing_player:
+            max_eval = float('-inf')
+            for move in legal_moves:
+                board.push(move)
+                eval = self.alpha_beta(board, depth-1, alpha, beta, False)
+                board.pop()
+                max_eval = max(max_eval, eval)
+                alpha = max(alpha, eval)
+                if beta <= alpha:
+                    break
+            self.eval_cache[board_fen] = max_eval  # Cache result
+            return max_eval
+        else:
+            min_eval = float('inf')
+            for move in legal_moves:
+                board.push(move)
+                eval = self.alpha_beta(board, depth-1, alpha, beta, True)
+                board.pop()
+                min_eval = min(min_eval, eval)
+                beta = min(beta, eval)
+                if beta <= alpha:
+                    break
+            self.eval_cache[board_fen] = min_eval  # Cache result
+            return min_eval
 
     def order_moves(self, board):
-        legal_moves = list(board.legal_moves)  # Ensure these are all legal moves
+        legal_moves = list(board.legal_moves)
         return sorted(
             legal_moves,
             key=lambda move: self.move_priority(board, move),
             reverse=True
         )
-        
-    def alpha_beta(self, board, depth, alpha, beta, maximizing_player):
-        board_hash = hash(board.fen())  # Use the board's FEN string for unique identification
-        if board_hash in self.eval_cache:
-            return self.eval_cache[board_hash]  # Return cached evaluation if available
 
-        if depth == 0 or board.is_game_over():
-            evaluation = self.evaluate_board(board)
-            self.eval_cache[board_hash] = evaluation  # Cache the result
-            return evaluation
-
-        if maximizing_player:
-            max_eval = float('-inf')
-            for move in board.legal_moves:
-                board.push(move)
-                eval = self.alpha_beta(board, depth - 1, alpha, beta, False)
-                board.pop()
-                max_eval = max(max_eval, eval)
-                alpha = max(alpha, eval)
-                if beta <= alpha:
-                    break  # Beta cut-off
-            self.eval_cache[board_hash] = max_eval  # Cache the result
-            return max_eval
-        else:
-            min_eval = float('inf')
-            for move in board.legal_moves:
-                board.push(move)
-                eval = self.alpha_beta(board, depth - 1, alpha, beta, True)
-                board.pop()
-                min_eval = min(min_eval, eval)
-                beta = min(beta, eval)
-                if beta <= alpha:
-                    break  # Alpha cut-off
-            self.eval_cache[board_hash] = min_eval  # Cache the result
-            return min_eval
+    def move_priority(self, board, move):
+        board.push(move)
+        evaluation = self.evaluate_board(board)
+        board.pop()
+        return evaluation
 
     def evaluate_board(self, board):
-        # 1. Material Balance
-        material_value = 0
+        weights = self.get_weights(board)
+
+        white_material = count_material(board, chess.WHITE)
+        black_material = count_material(board, chess.BLACK)
+
+        material_score = white_material - black_material
+        pawn_structure_score = self.evaluate_pawn_structure(board)
+        king_safety_score = self.evaluate_king_safety(board)
+        center_control_score = self.evaluate_center_control(board)
+        piece_mobility_score = self.evaluate_piece_mobility(board)
+        rook_activity_score = self.evaluate_rook_and_queen_activity(board)
+        passed_pawn_score = self.evaluate_passed_pawn(board)
+        bishop_pair_score = self.evaluate_bishop_pair(board)
+        knight_outposts_score = self.evaluate_knight_outposts(board)
+        tempo_score = self.evaluate_tempo(board)
+        open_files_score = self.evaluate_open_files(board)
+        hanging_pieces_score = self.evaluate_hanging_pieces(board)
+        weak_squares_score = self.evaluate_weak_squares(board)
+        piece_coordination_score = self.evaluate_piece_coordination(board)
+        pawn_majority_score = self.evaluate_pawn_majority(board)
+
+        total_score = (
+            weights["material"] * material_score +
+            weights["pawn_structure"] * pawn_structure_score +
+            weights["king_safety"] * king_safety_score +
+            weights["center_control"] * center_control_score +
+            weights["piece_mobility"] * piece_mobility_score +
+            weights["rook_activity"] * rook_activity_score +
+            weights["passed_pawn"] * passed_pawn_score +
+            weights["bishop_pair"] * bishop_pair_score +
+            weights["knight_outposts"] * knight_outposts_score +
+            weights["tempo"] * tempo_score +
+            weights["open_files"] * open_files_score +
+            weights["hanging_pieces"] * hanging_pieces_score +
+            weights["weak_squares"] * weak_squares_score +
+            weights["piece_coordination"] * piece_coordination_score +
+            weights["pawn_majority"] * pawn_majority_score
+        )
+
+        return total_score
+
+    
+    def piece_square_table(self, piece_type, square, color):
+        table = PIECE_SQUARE_TABLES.get(piece_type)
+        if table is None:
+            return 0  # Return 0 for piece types we don't handle
+
+        # Get the row and column of the square
+        square_index = chess.SQUARES.index(square)
+        row = square_index // 8  # Row (0-7)
+        col = square_index % 8  # Column (0-7)
+
+        # For black pieces, reverse the evaluation since black's perspective is flipped
+        if color == chess.BLACK:
+            row = 7 - row  # Reverse the row for black pieces
+
+        return table[row][col]
+    
+    def evaluate_pawn_structure(self, board):
+        white_pawns = board.pieces(chess.PAWN, chess.WHITE)
+        black_pawns = board.pieces(chess.PAWN, chess.BLACK)
+
+        pawn_structure_score = 0
+        # Evaluate isolated pawns (pawns with no same-color pawns on adjacent files)
+        for pawn in white_pawns:
+            file = chess.square_file(pawn)
+            # Check for isolated pawn: no pawns on adjacent files
+            # Check if there's no pawn on the left or right adjacent files
+            adjacent_files = [file - 1, file + 1]
+            isolated = True
+            for f in adjacent_files:
+                if f >= 0 and f <= 7:  # Ensure the file is within bounds (0 to 7)
+                    if any(board.pieces(chess.PAWN, chess.WHITE) & chess.SquareSet(chess.BB_FILES[f])):
+                        isolated = False
+                        break
+            if isolated:
+                pawn_structure_score += 5  # Reward isolated pawns
+
+            # Penalize isolated pawns that are under attack
+            if not board.is_attacked_by(chess.BLACK, pawn):
+                pawn_structure_score -= 5  # Penalize isolated pawns
+
+        for pawn in black_pawns:
+            file = chess.square_file(pawn)
+            # Check for isolated pawn: no pawns on adjacent files
+            # Check if there's no pawn on the left or right adjacent files
+            adjacent_files = [file - 1, file + 1]
+            isolated = True
+            for f in adjacent_files:
+                if f >= 0 and f <= 7:  # Ensure the file is within bounds (0 to 7)
+                    if any(board.pieces(chess.PAWN, chess.BLACK) & chess.SquareSet(chess.BB_FILES[f])):
+                        isolated = False
+                        break
+            if isolated:
+                pawn_structure_score -= 5  # Penalize isolated pawns
+
+            # Penalize isolated pawns that are under attack
+            if not board.is_attacked_by(chess.WHITE, pawn):
+                pawn_structure_score += 5  # Reward isolated pawns
+
+        # Evaluate doubled pawns (pawns of the same color on the same file)
+        for file in range(8):  # Use range(8) instead of chess.FILES
+            white_pawns_in_file = [pawn for pawn in white_pawns if chess.square_file(pawn) == file]
+            black_pawns_in_file = [pawn for pawn in black_pawns if chess.square_file(pawn) == file]
+            
+            # Penalize doubled pawns (pawns in the same file)
+            if len(white_pawns_in_file) > 1:
+                pawn_structure_score -= 10  # Penalize doubled pawns
+            if len(black_pawns_in_file) > 1:
+                pawn_structure_score += 10  # Reward doubled pawns for Black
+
+        # Evaluate backward pawns (pawns behind the rest of the pawns in the same file)
+        for pawn in white_pawns:
+            file = chess.square_file(pawn)
+            # Check if the pawn is backward (behind other pawns on adjacent files)
+            if file < 7:  # Ensure not the last file
+                if not any(board.pieces(chess.PAWN, chess.WHITE) & chess.SquareSet(chess.BB_FILES[file + 1])):
+                    pawn_structure_score -= 10  # Penalize backward pawns
+
+        for pawn in black_pawns:
+            file = chess.square_file(pawn)
+            # Check if the pawn is backward (behind other pawns on adjacent files)
+            if file < 7:  # Ensure not the last file
+                if not any(board.pieces(chess.PAWN, chess.BLACK) & chess.SquareSet(chess.BB_FILES[file + 1])):
+                    pawn_structure_score += 10  # Reward backward pawns
+
+        return pawn_structure_score
+    
+    def evaluate_king_safety(self, board):
+        white_king = board.king(chess.WHITE)
+        black_king = board.king(chess.BLACK)
+
+        king_safety_score = 0
+
+        # Phase-aware king safety evaluation
+        total_material = sum(
+            len(board.pieces(pt, chess.WHITE)) + len(board.pieces(pt, chess.BLACK))
+            for pt in [chess.QUEEN, chess.ROOK, chess.BISHOP, chess.KNIGHT]
+        )
+
+        # Opening phase: Encourage castling and minimal safety checks
+        if total_material > 20:
+            king_safety_score += self.reward_castling(white_king, chess.WHITE)
+            king_safety_score += self.reward_castling(black_king, chess.BLACK)
+
+        # Middlegame and endgame: Evaluate shields and safety more rigorously
+        else:
+            king_safety_score += self.evaluate_pawn_shield(board, white_king, chess.WHITE)
+            king_safety_score += self.evaluate_pawn_shield(board, black_king, chess.BLACK)
+
+        return king_safety_score
+
+    def reward_castling(self, board, king_pos, color):
+        castling_bonus = 0
+        if color == chess.WHITE:
+            if king_pos == chess.G1 or king_pos == chess.C1:  # Castling squares for White
+                castling_bonus += 30
+            elif king_pos == chess.E1 and not board.has_castling_rights(chess.WHITE):  
+                # Penalize uncastled king if castling rights are lost
+                castling_bonus -= 10
+        else:
+            if king_pos == chess.G8 or king_pos == chess.C8:  # Castling squares for Black
+                castling_bonus += 30
+            elif king_pos == chess.E8 and not board.has_castling_rights(chess.BLACK):
+                castling_bonus -= 10
+
+        return castling_bonus
+
+
+    def evaluate_pawn_shield(self, board, king_square, color):
+        score = 0
+
+        # Determine pawn shield squares based on the king's position
+        direction = 1 if color == chess.WHITE else -1
+        king_rank = chess.square_rank(king_square)
+        king_file = chess.square_file(king_square)
+
+        # Potential pawn shield squares (front and diagonals)
+        shield_squares = [
+            chess.square(king_file - 1, king_rank + direction) if 0 <= king_file - 1 <= 7 else None,
+            chess.square(king_file, king_rank + direction) if 0 <= king_file <= 7 else None,
+            chess.square(king_file + 1, king_rank + direction) if 0 <= king_file + 1 <= 7 else None,
+        ]
+
+        for sq in shield_squares:
+            if sq is not None and board.piece_at(sq) and board.piece_at(sq).piece_type == chess.PAWN:
+                piece_color = board.piece_at(sq).color
+                if piece_color == color:
+                    score += 10  # Reward pawns that shield the king
+
+        return score
+
+    def evaluate_center_control(self, board):
+        center_control_score = 0
+
+        # Define the center squares
+        center_squares = [chess.D4, chess.E4, chess.D5, chess.E5]
+        
+        # Create a lookup table for piece values in the center (positive for White, negative for Black)
+        piece_value_table = {
+            chess.PAWN: 10,
+            chess.KNIGHT: 5,
+            chess.BISHOP: 5,
+            chess.QUEEN: 10,
+            chess.ROOK: 3,
+            chess.KING: -5  # Penalize kings in the center, especially early in the game
+        }
+
+        # Evaluate pieces in the center for both players
+        for square in center_squares:
+            piece = board.piece_at(square)
+            if piece is not None:
+                if piece.color == board.turn:  # White's turn or Black's turn
+                    center_control_score += piece_value_table.get(piece.piece_type, 0)
+                else:
+                    center_control_score -= piece_value_table.get(piece.piece_type, 0)
+
+        # Evaluate pawns supporting the center from a distance
+        supporting_pawn_squares = [chess.D3, chess.E3, chess.D6, chess.E6]
+        for square in supporting_pawn_squares:
+            piece = board.piece_at(square)
+            if piece is not None and piece.piece_type == chess.PAWN:
+                if piece.color == board.turn:  # Reward White pawns, penalize Black pawns
+                    center_control_score += 3  # Reward pawns supporting the center
+                else:
+                    center_control_score -= 3  # Penalize pawns from the opponent supporting the center
+
+        control_bonus = 0
+        for square in center_squares:
+            if board.is_attacked_by(board.turn, square):
+                control_bonus += 2  # Bonus for controlling the square
+        center_control_score += control_bonus
+
+        extended_supporting_pawn_squares = [chess.C3, chess.F3, chess.C6, chess.F6]
+        for square in extended_supporting_pawn_squares:
+            piece = board.piece_at(square)
+            if piece is not None and piece.piece_type == chess.PAWN:
+                if piece.color == board.turn:
+                    center_control_score += 3  # Reward supporting pawns
+                else:
+                    center_control_score -= 3  # Penalize opponent's supporting pawns
+
+        return center_control_score
+
+    def evaluate_piece_mobility(self, board):
+        mobility_score = 0
+        
         for square in chess.SQUARES:
             piece = board.piece_at(square)
             if piece:
-                piece_type = piece.piece_type  # Get the piece type (e.g., PAWN, KNIGHT)
-                piece_color = piece.color  # True for white, False for black
-                piece_val = PIECE_VALUES[piece_type]
-                # Adjust for the piece's position using the piece-square table
-                material_value += piece_val * self.piece_square_table(piece_type, square, piece_color)
-        # 2. Pawn Structure Evaluation
-        material_value += self.pawn_structure_evaluation(board)
-        # 3. King Safety Evaluation
-        material_value += self.king_safety_evaluation(board)
-        # 4. Piece Activity Evaluation (development, mobility)
-        material_value += self.evaluate_piece_activity(board)
-        # 5. Center Control Evaluation
-        material_value += self.evaluate_center_control(board)
-        # 6. Passed Pawn Evaluation
-        material_value += self.evaluate_passed_pawns(board)
-        # 7. Piece Coordination (Good development and coordination of pieces)
-        material_value += self.evaluate_piece_coordination(board)
-
-        return material_value
-    
-    def move_priority(self, board, move):
-        """Assign priority to a move based on various heuristics, including the opening book."""
-        priority = 0
-
-        # Check if the current position is in the opening book
-        if board.fen() in opening_book:
-            opening_moves = opening_book[board.fen()]
-            # If the move is part of the opening book, prioritize it
-            if move in opening_moves:
-                priority += 30  # Give high priority to opening book moves
-
-        # Simulate the move on a temporary board
-        temp_board = board.copy()  # Copy the board to simulate the move
-        temp_board.push(move)  # Make the move on the temporary board
-
-        # Check if the move leaves the current player's king in check
-        if temp_board.is_check():  # If the king is in check, this is not a valid move
-            temp_board.pop()  # Undo the move
-            return -1  # Invalid move, assign the lowest priority
-
-        # Now check if the move gives check to the opponent's king
-        opponent_in_check = temp_board.is_check()
-
-        if temp_board.is_checkmate() and temp_board.turn == board.turn:
-            return -1  # Avoid checkmate moves
-
-        # Initialize the priority
-        if opponent_in_check:
-            priority += 20  # Prioritize check moves (higher than normal moves)
-
-        # Check if the move results in checkmate
-        if temp_board.is_checkmate():
-            priority += 50  # Checkmate should have the highest priority
-
-        # Check if the move is a capture
-        is_capture = temp_board.is_capture(move)
-        if is_capture:
-            priority += 10  # Captures are prioritized
-
-            # Evaluate the value of the captured piece
-            captured_piece = temp_board.piece_at(move.to_square)
-            captured_piece_value = PIECE_VALUES.get(captured_piece.piece_type, 0) if captured_piece else 0
-            priority += captured_piece_value  # Increase priority based on captured piece value
-
-        # Control of the center (d4, d5, e4, e5)
-        center_squares = [chess.D4, chess.D5, chess.E4, chess.E5]
-        if move.to_square in center_squares:
-            priority += 5  # Central squares are more valuable
-
-        # Evaluate piece activity (mobility)
-        piece_mobility = len(list(temp_board.legal_moves))  # Mobility of the current piece
-        priority += piece_mobility  # The more moves a piece has, the higher its priority
-
-        # King safety evaluation (moves that improve king safety are prioritized)
-        if temp_board.king(temp_board.turn) == move.from_square:
-            # If it's a king move, prioritize moves that keep the king safe (e.g., castling)
-            king_square = move.to_square
-            attacks = len(temp_board.attacks(king_square))
-            priority -= attacks * 5  # Penalize moves that expose the king to attacks
-
-        # Evaluate pawn structure (prevent creating weaknesses, advancing passed pawns)
-        if temp_board.piece_at(move.to_square) and temp_board.piece_at(move.to_square).piece_type == chess.PAWN:
-            if self.is_passed(temp_board, move.to_square, temp_board.turn):
-                priority += 15  # Passed pawn advancing is highly valuable
-            elif self.is_isolated(temp_board, move.to_square):
-                priority -= 10  # Isolated pawns are a weakness
-            elif self.is_backward(temp_board, move.to_square):
-                priority -= 5  # Backward pawns are a weakness
-
-        # Evaluate piece coordination (support between pieces)
-        if self.is_piece_coordination_good(temp_board, move):
-            priority += 5  # Favor moves that improve piece coordination
-
-        # Evaluate tactical threats (e.g., forks, pins, skewers)
-        if self.is_tactical_threat(temp_board, move):
-            priority += 10  # Prioritize moves that create tactical opportunities
-
-        # If the move is a pawn promotion (special case), give it high priority
-        if move.promotion:
-            priority += 25  # Pawn promotion should be highly prioritized (e.g., promote to queen)
-
-        # Penalize moves that leave a piece in danger (under attack)
-        if self.is_under_attack(temp_board, move.to_square, temp_board.turn):
-            priority -= 15  # Penalize moves that leave a piece in danger
-
-        # Add more prioritization for piece development (e.g., Nf3, Nc3)
-        if move.from_square == chess.E2 and move.to_square == chess.E4:
-            priority += 10  # Prioritize central control (e.g., pawn to e4)
-        elif move.from_square == chess.G1 and move.to_square == chess.F3:
-            priority += 15  # Prioritize knight development (e.g., Nf3)
-        elif move.from_square == chess.B1 and move.to_square == chess.C3:
-            priority += 15  # Prioritize knight development (e.g., Nc3)
-        # Avoid unnecessary king moves early
-        if move.from_square == chess.E1 and move.to_square != chess.G1:  # King move, but not castling
-            priority -= 10  # Penalize king moves unless castling
-
-        temp_board.pop()  # Undo the move
-        return priority
-    
-    def is_under_attack(self, board, square, color):
-        opponent_color = chess.WHITE if color == chess.BLACK else chess.BLACK
-        # Check all attacks from opponent's pieces to the given square
-        return any(board.piece_at(target_square) and board.piece_at(target_square).color == opponent_color
-                for target_square in board.attacks(square))
-
-    def is_castling_legal(self, board, move):
-        """Check if castling is legal based on various conditions (king, rook movement, no checks)."""
-        # Ensure the king and rook haven't moved, squares between them are empty, and the king isn't in check
-        if not board.is_castling(move):
-            return False
-        if board.is_check():
-            return False
-        if board.is_king_in_check(board.turn):
-            return False
-        return True
-
-    def is_en_passant_legal(self, board, move):
-        """Check if en passant is legal based on the current state of the game."""
-        # En passant is only valid under very specific circumstances (e.g., opponent just moved a pawn two squares)
-        # You need to check if the move matches the en passant condition:
-        if board.piece_at(move.from_square).piece_type == chess.PAWN and board.piece_at(move.to_square) is None:
-            if move.from_square == chess.E5 and move.to_square == chess.D6:
-                return True  # Example condition for en passant
-        return False
-
-    def is_piece_coordination_good(self, board, move):
-        piece = board.piece_at(move.from_square)
-        
-        if piece is None:
-            return False  
-        
-        piece_type = piece.piece_type
-
-        # Simple check for rooks and queens, prefer moves that place them on open files or ranks
-        if piece_type == chess.ROOK or piece_type == chess.QUEEN:
-            for target_square in chess.SQUARES:
-                target_piece = board.piece_at(target_square)
-                if target_piece and (target_piece.piece_type == chess.ROOK or target_piece.piece_type == chess.QUEEN):
-                    if chess.square_file(move.from_square) == chess.square_file(target_square) or \
-                    chess.square_rank(move.from_square) == chess.square_rank(target_square):
-                        return True  # Pieces on the same file/rank are more coordinated
-
-        return False
-
-    def is_tactical_threat(self, board, move):
-        """Check if a move creates any tactical threats such as forks, pins, or skewers"""
-        # Implementing tactical threat detection (this can be made more complex)
-        attacked_piece = board.piece_at(move.to_square)
-        if attacked_piece:
-            if attacked_piece.color != board.turn:  # If it attacks an opponent's piece
-                if self.is_fork(board, move):
-                    return True
-                elif self.is_pin(board, move):
-                    return True
-                elif self.is_skewer(board, move):
-                    return True
-        return False
-
-    def is_fork(self, board, move):
-        """Check if the move sets up a fork (attacking two pieces at once)"""
-        # This is a simplified version; real fork detection requires checking multiple pieces
-        attacked_piece = board.piece_at(move.to_square)
-        if attacked_piece:
-            for target_square in chess.SQUARES:
-                target_piece = board.piece_at(target_square)
-                if target_piece and target_piece.color != board.turn:
-                    if len(board.attackers(board.turn, target_square)) > 1:  # Attacking both pieces
-                        return True
-        return False
-
-    def is_pin(self, board, move):
-        """Check if the move sets up a pin"""
-        # A pin occurs when a piece is attacked and cannot move without exposing a more valuable piece
-        attacked_piece = board.piece_at(move.to_square)
-        if attacked_piece:
-            for target_square in chess.SQUARES:
-                target_piece = board.piece_at(target_square)
-                if target_piece and target_piece.color != board.turn:
-                    if len(board.attackers(board.turn, target_square)) > 1:  # More attackers means a pin is possible
-                        return True
-        return False
-
-    def is_skewer(self, board, move):
-        """Check if the move sets up a skewer"""
-        # A skewer is similar to a pin, but with the more valuable piece in front
-        attacked_piece = board.piece_at(move.to_square)
-        if attacked_piece:
-            for target_square in chess.SQUARES:
-                target_piece = board.piece_at(target_square)
-                if target_piece and target_piece.color != board.turn:
-                    if len(board.attackers(board.turn, target_square)) > 1:  # More attackers means a skewer is possible
-                        return True
-        return False
-
-    def is_isolated(self, board, square):
-        file = chess.square_file(square)
-        if file > 0 and board.piece_at(chess.square(chess.square_rank(square), file - 1)) and \
-                board.piece_at(chess.square(chess.square_rank(square), file - 1)).piece_type == chess.PAWN:
-            return False
-        if file < 7 and board.piece_at(chess.square(chess.square_rank(square), file + 1)) and \
-                board.piece_at(chess.square(chess.square_rank(square), file + 1)).piece_type == chess.PAWN:
-            return False
-        return True
-
-    def pawn_structure_evaluation(self, board):
-            evaluation = 0
-            for square in chess.SQUARES:
-                piece = board.piece_at(square)
-                if piece and piece.piece_type == chess.PAWN:
-                    # Isolated Pawn
-                    if self.is_isolated(board, square):
-                        evaluation -= 10  # Isolated pawns are weak
-                    # Passed Pawn
-                    if self.is_passed(board, square, piece.color):
-                        evaluation += 20  # Passed pawns are valuable
-                    # Doubled Pawns (on the same file)
-                    if self.is_doubled(board, square, piece.color):
-                        evaluation -= 5  # Doubled pawns are weak
-            return evaluation
-
-    def evaluate_passed_pawns(self, board):
-        evaluation = 0
-        for square in chess.SQUARES:
-            piece = board.piece_at(square)
-            if piece and piece.piece_type == chess.PAWN:
                 color = piece.color
-                if self.is_passed(board, square, color):
-                    # The passed pawn's value increases the further it is advanced
-                    rank = chess.square_rank(square)
-                    # Value of passed pawn increases with the number of ranks it has advanced
-                    evaluation += (6 - rank) if color == chess.WHITE else (rank - 1)
-        return evaluation
+                piece_type = piece.piece_type
+                # Calculate the number of legal moves for each piece
+                if piece_type == chess.PAWN:
+                    mobility_score += self.pawn_mobility(square, piece, board)
+                elif piece_type == chess.KNIGHT:
+                    mobility_score += self.knight_mobility(square, piece, board)
+                elif piece_type == chess.BISHOP:
+                    mobility_score += self.bishop_mobility(square, piece, board)
+                elif piece_type == chess.ROOK:
+                    mobility_score += self.rook_mobility(square, piece, board)
+                elif piece_type == chess.QUEEN:
+                    mobility_score += self.queen_mobility(square, piece, board)
+                elif piece_type == chess.KING:
+                    mobility_score += self.king_mobility(square, piece, board)
 
-    def is_passed(self, board, square, color):
-        rank = chess.square_rank(square)
+                # If it's the opponent's turn, subtract the mobility score
+                if color != board.turn:
+                    mobility_score -= mobility_score
+
+        return mobility_score
+
+    def pawn_mobility(self, square, piece, board):
+        mobility_score = 0
+        if piece.piece_type == chess.PAWN:
+            # Ensure pawns on rank 1 (second rank) can move two squares
+            if piece.color == chess.WHITE:
+                if chess.square_rank(square) == 1:  # On the second rank
+                    # Check if two squares ahead are open (rank 3 for white pawns)
+                    if 0 <= square + 16 < 64 and board.piece_at(square + 16) is None:
+                        mobility_score += 1  # Reward double pawn move
+                # Check for single-square moves (standard pawn move)
+                if 0 <= square + 8 < 64 and board.piece_at(square + 8) is None:
+                    mobility_score += 1  # Reward single-square move
+            elif piece.color == chess.BLACK:
+                if chess.square_rank(square) == 6:  # On the second-to-last rank (7th rank for black pawns)
+                    # Check if two squares ahead are open (rank 5 for black pawns)
+                    if 0 <= square - 16 < 64 and board.piece_at(square - 16) is None:
+                        mobility_score += 1  # Reward double pawn move
+                # Check for single-square moves (standard pawn move)
+                if 0 <= square - 8 < 64 and board.piece_at(square - 8) is None:
+                    mobility_score += 1  # Reward single-square move
+
+        return mobility_score
+
+
+    def rook_mobility(self, square, piece, board):
+        mobility = 0
+        for direction in ROOK_DIRECTIONS:
+            target_square = square
+            while True:
+                target_square += direction
+                if not square_is_on_board(target_square):  # Check if the target square is within the board
+                    break
+                if board.piece_at(target_square) is None:  # Empty square
+                    mobility += 1
+                else:  # Blocked by a piece
+                    break
+        return mobility
+
+    def bishop_mobility(self, square, piece, board):
+        mobility = 0
+        for direction in BISHOP_DIRECTIONS:
+            target_square = square
+            while True:
+                target_square += direction
+                if not square_is_on_board(target_square):  # Check if the target square is within the board
+                    break
+                if board.piece_at(target_square) is None:  # Empty square
+                    mobility += 1
+                else:  # Blocked by a piece
+                    break
+        return mobility
+
+    def knight_mobility(self, square, piece, board):
+        mobility = 0
+        for move in KNIGHT_MOVES:
+            target_square = square + move
+            if square_is_on_board(target_square) and board.piece_at(target_square) is None:
+                mobility += 1
+        return mobility
+
+    def queen_mobility(self, square, piece, board):
+        mobility = 0
+        mobility += self.rook_mobility(square, piece, board)  # Rook-like moves
+        mobility += self.bishop_mobility(square, piece, board)  # Bishop-like moves
+        return mobility
+
+    def king_mobility(self, square, piece, board):
+        mobility = 0
+        for move in KING_MOVES:
+            target_square = square + move
+            if square_is_on_board(target_square) and board.piece_at(target_square) is None:
+                mobility += 1
+        return mobility
+
+    def evaluate_rook_and_queen_activity(self, board):
+        activity_score = 0
+
+        # Loop through all pieces on the board
+        for square in range(64):
+            piece = board.piece_at(square)
+            
+            if piece is None:
+                continue
+
+            # Evaluate activity for rooks and queens
+            if piece.piece_type == chess.ROOK:
+                activity_score += self.rook_activity(square, piece, board)
+            elif piece.piece_type == chess.QUEEN:
+                activity_score += self.queen_activity(square, piece, board)
+
+        return activity_score
+    
+    def rook_activity(self, square, piece, board):
+        activity_score = 0
+        
         file = chess.square_file(square)
-        direction = 1 if color == chess.WHITE else -1
+        rank = chess.square_rank(square)
+        
+        # Check if the rook is placed on an open or semi-open file
+        if all(board.piece_at(chess.square(r, file)) is None or board.piece_at(chess.square(r, file)).color != piece.color for r in range(8)):
+            activity_score += 1  # Reward rooks on open files
+        elif all(board.piece_at(chess.square(r, file)) is None or board.piece_at(chess.square(r, file)).color == piece.color for r in range(8)):
+            activity_score += 0.5  # Reward rooks on semi-open files
 
-        for r in range(rank + direction, 8 if color == chess.WHITE else -1, direction):
-            for f in range(max(0, file - 1), min(7, file + 1) + 1):
-                if board.piece_at(chess.square(f, r)) and board.piece_at(chess.square(f, r)).color != color:
+        # Check if the rook is controlling important squares (like central ranks)
+        if rank in [3, 4, 5]:
+            activity_score += 0.5  # Reward rooks on central ranks
+
+        return activity_score
+
+    def queen_activity(self, square, piece, board):
+        activity_score = 0
+        
+        center_squares = [chess.D4, chess.E4, chess.D5, chess.E5]
+        
+        # Reward the queen if it is in or near the center
+        if square in center_squares:
+            activity_score += 2
+        elif chess.square_rank(square) in [3, 4] and chess.square_file(square) in [3, 4]:
+            activity_score += 1
+        
+        # Evaluate squares controlled by the queen (like open lines, diagonals, etc.)
+        file = chess.square_file(square)
+        rank = chess.square_rank(square)
+        
+        # Reward queens controlling important files or diagonals
+        if all(board.piece_at(chess.square(r, file)) is None for r in range(8)):
+            activity_score += 1  # Reward queens on open files
+        if all(board.piece_at(chess.square(rank, f)) is None for f in range(8)):
+            activity_score += 1  # Reward queens on open ranks
+        if all(board.piece_at(chess.square(r, c)) is None for r, c in zip(range(8), range(8))):  # Example diagonal control
+            activity_score += 0.5  # Reward queens controlling diagonals
+
+        return activity_score
+
+    def evaluate_passed_pawn(self, board):
+        passed_pawn_score = 0
+        color = board.turn
+
+        # Loop through all squares to find passed pawns for the given color
+        for square in range(64):
+            piece = board.piece_at(square)
+            
+            if piece is None or piece.piece_type != chess.PAWN or piece.color != color:
+                continue
+
+            # Check for passed pawn and add the score based on its position
+            if self.is_passed_pawn(board, square, piece.color):
+                passed_pawn_score += self.passed_pawn_position_score(square, piece.color)
+
+        return passed_pawn_score
+
+    def is_passed_pawn(self, board, square, color):
+        file = chess.square_file(square)
+        
+        # Check for opponent pawns on the same or adjacent files above the current pawn
+        for rank in range(chess.square_rank(square) + 1, 8):
+            opponent_pawns = board.pieces(chess.PAWN, chess.BLACK if color == chess.WHITE else chess.WHITE)
+            for opponent_pawn_square in opponent_pawns:
+                opponent_file = chess.square_file(opponent_pawn_square)
+                opponent_rank = chess.square_rank(opponent_pawn_square)
+
+                # If an opponent pawn is on the same or adjacent file and ahead, the pawn is blocked
+                if opponent_rank > rank and opponent_file in [file - 1, file, file + 1]:
                     return False
         return True
 
-    def is_backward(self, board, to_square):
-        """Check if a pawn move is backward (against its typical direction of movement)."""
-        piece = board.piece_at(to_square)
+    def passed_pawn_position_score(self, square, color):
+        rank = chess.square_rank(square)
         
-        if not piece or piece.piece_type != chess.PAWN:
-            return False  # Not a pawn move, so it's not backward
+        # Reward passed pawns as they advance towards promotion
+        score = 0
+        if color == chess.WHITE:
+            score = rank  # White pawns get higher score as they advance to rank 8
+        elif color == chess.BLACK:
+            score = 7 - rank  # Black pawns get higher score as they advance to rank 1
         
-        pawn_color = piece.color
-        start_rank = chess.square_rank(to_square)
-        
-        if pawn_color == chess.WHITE:
-            # For white, pawns move from rank 2 to rank 8, so a backward move is when it goes to a lower rank
-            if start_rank <= 1:  # Can't move backward if it's already at or behind its starting position
-                return False
-            return start_rank < chess.square_rank(to_square)
-        
-        elif pawn_color == chess.BLACK:
-            # For black, pawns move from rank 7 to rank 1, so a backward move is when it goes to a higher rank
-            if start_rank >= 6:  # Can't move backward if it's already at or behind its starting position
-                return False
-            return start_rank > chess.square_rank(to_square)
+        return score
 
+    def evaluate_bishop_pair(self, board):
+        # Count the number of bishops for both colors
+        white_bishops = board.pieces(chess.BISHOP, chess.WHITE)
+        black_bishops = board.pieces(chess.BISHOP, chess.BLACK)
+        
+        score = 0
+
+        # Evaluate bishop pair for White and Black
+        if len(white_bishops) == 2:
+            score += 30  # A bishop pair is generally a strong advantage
+            score += self.bishop_position_score(white_bishops, board)  # Position-based score for White's bishops
+        if len(black_bishops) == 2:
+            score -= 30  # A bishop pair for Black is a disadvantage for White
+            score -= self.bishop_position_score(black_bishops, board)  # Position-based score for Black's bishops
+
+        return score
+
+    def bishop_position_score(self, bishops, board):
+        score = 0
+
+        for bishop_square in bishops:
+            # Get bishop's position
+            rank = chess.square_rank(bishop_square)
+            file = chess.square_file(bishop_square)
+
+            # Add score for central positions
+            if rank in [3, 4] and file in [3, 4]:  # The center squares are D4, E4, D5, E5
+                score += 5
+
+            # Evaluate open diagonals: bishops on diagonals with no pawns
+            if self.is_bishop_on_open_diagonal(bishop_square, board):
+                score += 10  # A bishop on an open diagonal is stronger
+
+            # Bishops on the long diagonals (a1-h8 and h1-a8) are usually stronger
+            if bishop_square in [chess.A1, chess.H1, chess.A8, chess.H8]:
+                score += 5
+
+        return score
+
+    def is_bishop_on_open_diagonal(self, bishop_square, board):
+        # Check if the bishop is on an open diagonal (no pawns on the diagonal)
+        directions = [(-1, -1), (1, 1), (-1, 1), (1, -1)]  # All 4 diagonal directions
+        for direction in directions:
+            file, rank = chess.square_file(bishop_square), chess.square_rank(bishop_square)
+
+            # Explore the diagonal in the direction
+            for i in range(1, 8):
+                # Calculate new square coordinates along the diagonal
+                new_file = file + direction[0] * i
+                new_rank = rank + direction[1] * i
+
+                # Check if the new square is within bounds
+                if not square_is_on_board(chess.square(new_file, new_rank)):
+                    break  # Stop if the square is off the board
+
+                # Check if there's a pawn on this square
+                piece = board.piece_at(chess.square(new_file, new_rank))
+                if piece and piece.piece_type == chess.PAWN:
+                    return False  # A pawn is blocking the diagonal
+
+        return True  # No pawns found, the diagonal is open
+
+    def evaluate_weak_squares(self, board):
+        score = 0
+
+        # Loop through all squares on the board
+        for square in range(64):
+            piece = board.piece_at(square)
+
+            if piece is None:
+                continue
+
+            # Check for isolated pawns
+            if piece.piece_type == chess.PAWN:
+                file = chess.square_file(square)
+                rank = chess.square_rank(square)
+
+                # Check if the pawn is isolated (no friendly pawns in adjacent files)
+                if not self.is_pawn_supported(board, square, piece.color):
+                    # Penalize isolated pawns
+                    score += -10 if piece.color == chess.WHITE else 10
+
+            # Additional evaluation for weak squares with other pieces can be added here
+            # For example, unprotected squares or backward pawns could also be assessed.
+
+        return score
+
+    def is_pawn_supported(self, board, square, color):
+        file = chess.square_file(square)
+
+        # Determine which pawns to check based on the color
+        if color == chess.WHITE:
+            supporting_pawns = board.pieces(chess.PAWN, chess.WHITE)
+        else:
+            supporting_pawns = board.pieces(chess.PAWN, chess.BLACK)
+        
+        # Check if there is a supporting pawn on adjacent files
+        for supporting_pawn_square in supporting_pawns:
+            supporting_file = chess.square_file(supporting_pawn_square)
+            supporting_rank = chess.square_rank(supporting_pawn_square)
+
+            # Only check pawns that are on the same rank or one rank behind
+            if abs(supporting_file - file) <= 1 and supporting_rank == chess.square_rank(square):
+                return True  # Pawn is supported by a neighboring pawn
+
+        return False  # Pawn is isolated
+
+    def evaluate_piece_coordination(self, board):
+        score = 0
+
+        # Knight coordination: Knights that support each other are valuable
+        white_knights = board.pieces(chess.KNIGHT, chess.WHITE)
+        black_knights = board.pieces(chess.KNIGHT, chess.BLACK)
+        
+        score += self.knight_coordination_score(white_knights)
+        score -= self.knight_coordination_score(black_knights)
+
+        # Rook coordination: Rooks on the same file or rank are stronger
+        white_rooks = board.pieces(chess.ROOK, chess.WHITE)
+        black_rooks = board.pieces(chess.ROOK, chess.BLACK)
+        
+        score += self.rook_coordination_score(white_rooks)
+        score -= self.rook_coordination_score(black_rooks)
+
+        # Queen coordination: Queens are stronger when they coordinate with other pieces
+        white_queens = board.pieces(chess.QUEEN, chess.WHITE)
+        black_queens = board.pieces(chess.QUEEN, chess.BLACK)
+
+        score += self.queen_coordination_score(white_queens)
+        score -= self.queen_coordination_score(black_queens)
+
+        # Bishop coordination: Bishops on the same diagonal work together
+        white_bishops = board.pieces(chess.BISHOP, chess.WHITE)
+        black_bishops = board.pieces(chess.BISHOP, chess.BLACK)
+
+        score += self.bishop_coordination_score(white_bishops)
+        score -= self.bishop_coordination_score(black_bishops)
+
+        return score
+
+    def knight_coordination_score(self, knights):
+        score = 0
+        knight_positions = list(knights)
+
+        # Check if knights are supporting each other
+        for i in range(len(knight_positions)):
+            for j in range(i + 1, len(knight_positions)):
+                knight_1 = knight_positions[i]
+                knight_2 = knight_positions[j]
+
+                # Check if the knights are within range of each other (distance <= 2)
+                if chess.square_distance(knight_1, knight_2) <= 2:
+                    score += 5  # Reward coordination between knights
+
+        return score
+
+    def rook_coordination_score(self, rooks):
+        score = 0
+        rook_positions = list(rooks)
+
+        # Check if rooks are on the same file or rank
+        for i in range(len(rook_positions)):
+            for j in range(i + 1, len(rook_positions)):
+                rook_1 = rook_positions[i]
+                rook_2 = rook_positions[j]
+
+                if chess.square_file(rook_1) == chess.square_file(rook_2) or chess.square_rank(rook_1) == chess.square_rank(rook_2):
+                    score += 10  # Reward rooks on the same file or rank
+
+        return score
+
+    def queen_coordination_score(self, queens):
+        score = 0
+        queen_positions = list(queens)
+
+        # Check if queens are supporting each other or other pieces
+        for i in range(len(queen_positions)):
+            for j in range(i + 1, len(queen_positions)):
+                queen_1 = queen_positions[i]
+                queen_2 = queen_positions[j]
+
+                # Reward queens coordinating closely
+                if chess.square_distance(queen_1, queen_2) <= 2:
+                    score += 7  # Reward queens coordinating closely
+
+        return score
+
+    def bishop_coordination_score(self, bishops):
+        score = 0
+        bishop_positions = list(bishops)
+
+        # Check if bishops are on the same diagonal
+        for i in range(len(bishop_positions)):
+            for j in range(i + 1, len(bishop_positions)):
+                bishop_1 = bishop_positions[i]
+                bishop_2 = bishop_positions[j]
+
+                # Check if bishops are on the same diagonal
+                if abs(chess.square_rank(bishop_1) - chess.square_rank(bishop_2)) == abs(chess.square_file(bishop_1) - chess.square_file(bishop_2)):
+                    score += 5  # Reward bishops on the same diagonal
+
+        return score
+
+    def evaluate_pawn_majority(self, board):
+        score = 0
+
+        # Split the board into two parts: Kingside (files f, g, h) and Queenside (files a, b, c, d)
+        white_pawns = board.pieces(chess.PAWN, chess.WHITE)
+        black_pawns = board.pieces(chess.PAWN, chess.BLACK)
+
+        white_queenside = sum(1 for pawn in white_pawns if chess.square_file(pawn) < 4)
+        white_kingside = sum(1 for pawn in white_pawns if chess.square_file(pawn) >= 4)
+
+        black_queenside = sum(1 for pawn in black_pawns if chess.square_file(pawn) < 4)
+        black_kingside = sum(1 for pawn in black_pawns if chess.square_file(pawn) >= 4)
+
+        # Add score based on pawn majority difference
+        queenside_majority_diff = white_queenside - black_queenside
+        kingside_majority_diff = white_kingside - black_kingside
+
+        # Reward/penalize based on the difference in pawn numbers on each side
+        score += queenside_majority_diff * 5  # Adjust the multiplier for more granular scoring
+        score += kingside_majority_diff * 5  # Adjust the multiplier for more granular scoring
+
+        return score
+
+    def evaluate_knight_outposts(self, board):
+        score = 0
+
+        # Get all knights for both colors
+        white_knights = board.pieces(chess.KNIGHT, chess.WHITE)
+        black_knights = board.pieces(chess.KNIGHT, chess.BLACK)
+
+        # Check white knights
+        for knight_square in white_knights:
+            rank = chess.square_rank(knight_square)
+
+            # Ideal outpost squares are on the 5th and 6th ranks (for white, rank 3 and 4 for black)
+            if rank in [3, 4]:
+                score += 10  # Reward knight on ideal outpost
+            if self.is_knight_on_safe_square(board, knight_square, chess.WHITE):
+                score += 5  # Reward knights that are not easily attacked
+
+        # Check black knights
+        for knight_square in black_knights:
+            rank = chess.square_rank(knight_square)
+
+            # Ideal outpost squares are on the 5th and 6th ranks (for white, rank 3 and 4 for black)
+            if rank in [3, 4]:
+                score -= 10  # Penalize opponent's knights on ideal outposts
+            if self.is_knight_on_safe_square(board, knight_square, chess.BLACK):
+                score -= 5  # Penalize opponent's knights that are not easily attacked
+
+        return score
+
+    def is_knight_on_safe_square(self, board, knight_square, knight_color):
+        file = chess.square_file(knight_square)
+        rank = chess.square_rank(knight_square)
+
+        # A knight on an outpost should not be attacked by an opponent pawn
+        opponent_color = chess.BLACK if knight_color == chess.WHITE else chess.WHITE
+        opponent_pawns = board.pieces(chess.PAWN, opponent_color)
+
+        # Check if the knight is under attack by an opponent pawn (only consider pawns that can attack the knight's position)
+        for opponent_pawn_square in opponent_pawns:
+            opponent_pawn_file = chess.square_file(opponent_pawn_square)
+            opponent_pawn_rank = chess.square_rank(opponent_pawn_square)
+
+            # Check if the opponent's pawn can attack the knight
+            if knight_color == chess.WHITE:
+                if opponent_pawn_rank == rank + 1 and abs(opponent_pawn_file - file) == 1:
+                    return False  # Knight is under attack by an opponent pawn
+            else:
+                if opponent_pawn_rank == rank - 1 and abs(opponent_pawn_file - file) == 1:
+                    return False  # Knight is under attack by an opponent pawn
+
+        return True  # The knight is on a safe square
+
+    def evaluate_tempo(self, board):
+        score = 0
+
+        if board.turn == chess.WHITE:
+            # Reward for White moving pieces out in a natural development
+            score += 10  # Reward for having the next move
+        else:
+            # Penalize Black for reacting to White's moves
+            score -= 10  # Penalize Black for having to react to White's moves
+
+        # Track moves that seem inefficient
+        for move in board.legal_moves:
+            piece = board.piece_at(move.from_square)
+            if piece and piece.piece_type == chess.PAWN:
+                # Penalize for moving pawns unnecessarily (moving pawns multiple times in the opening can waste tempo)
+                if self.is_pawn_moved_twice(board, move.from_square):
+                    score -= 5  # Penalize for moving the same pawn twice
+
+            if piece and piece.piece_type in [chess.KNIGHT, chess.BISHOP, chess.ROOK, chess.QUEEN]:
+                # Penalize repeated moves (if the same piece moves more than once in the opening)
+                if self.has_piece_moved_twice(board, piece):
+                    score -= 5  # Penalize for moving the same piece twice
+        return score
+
+    def is_pawn_moved_twice(self, board, pawn_square):
+        # Check if a pawn has already moved once (and now moves a second time)
+        if chess.square_rank(pawn_square) == 6 or chess.square_rank(pawn_square) == 1:
+            # Pawn is on its starting position, check if it's moved
+            for move in board.move_stack:
+                if move.from_square == pawn_square and move.to_square == pawn_square + 8:
+                    return True  # Pawn has moved twice
         return False
 
-    def is_doubled(self, board, square, color):
-        file = chess.square_file(square)
-        rank = chess.square_rank(square)
-        for r in range(rank + 1, 8 if color == chess.WHITE else -1):
-            if board.piece_at(chess.square(file, r)) and \
-            board.piece_at(chess.square(file, r)).color == color and \
-            board.piece_at(chess.square(file, r)).piece_type == chess.PAWN:
+    def has_piece_moved_twice(self, board, piece):
+        # Check if a piece has moved twice in the opening phase
+        move_count = 0
+        for move in board.move_stack:
+            if board.piece_at(move.from_square) == piece:
+                move_count += 1
+            if move_count > 1:
                 return True
         return False
 
-    def evaluate_center_control(self, board):
-        center_squares = [chess.D4, chess.D5, chess.E4, chess.E5]
-        control = 0
-        for square in center_squares:
-            piece = board.piece_at(square)
-            if piece:
-                if piece.color == self.color:
-                    control += 1  # Own piece controls the center
+    def evaluate_open_files(self, board):
+        score = 0
+
+        # Loop through each file (0-7)
+        for file in range(8):
+            # Get the pawns for both sides on the current file
+            white_pawns = board.pieces(chess.PAWN, chess.WHITE).intersection(chess.BB_FILES[file])
+            black_pawns = board.pieces(chess.PAWN, chess.BLACK).intersection(chess.BB_FILES[file])
+
+            # Check if the file is open (no pawns) or semi-open (one color has pawns)
+            is_open_file = len(white_pawns) == 0 and len(black_pawns) == 0
+            is_semi_open_file = (len(white_pawns) == 0 and len(black_pawns) > 0) or (len(white_pawns) > 0 and len(black_pawns) == 0)
+
+            # For open files, reward rooks and queens
+            if is_open_file:
+                score += self.evaluate_file_control(board, file, chess.WHITE)
+                score -= self.evaluate_file_control(board, file, chess.BLACK)
+            elif is_semi_open_file:
+                if len(white_pawns) == 0:
+                    score = score + self.evaluate_file_control(board, file, chess.WHITE)
                 else:
-                    control -= 1  # Opponent's piece controls the center
-        return control * 10  # Giving more weight to the center control
+                    score = score - self.evaluate_file_control(board, file, chess.BLACK)
 
-    def evaluate_piece_activity(self, board):
-        activity = 0
+        return score
+
+    def evaluate_file_control(self, board, file, color):
+        score = 0
+
+        # Get rooks and queens for the given color on the specified file
+        pieces = board.pieces(chess.ROOK, color).union(board.pieces(chess.QUEEN, color))
+
+        for piece_square in pieces:
+            if chess.square_file(piece_square) == file:
+                # Reward pieces controlling open or semi-open files
+                score += 10
+
+                # Optionally add a rank-based bonus for rooks/queens in advanced positions
+                rank = chess.square_rank(piece_square)
+                if color == chess.WHITE:
+                    score += 2 * (7 - rank)  # Higher rank = more control for White
+                else:
+                    score += 2 * rank  # Higher rank = more control for Black
+
+        return score if score != 0 else 0  # Ensure a numeric return value
+
+    def evaluate_hanging_pieces(self, board):
+        score = 0
         for square in chess.SQUARES:
             piece = board.piece_at(square)
             if piece:
-                activity += self.piece_activity(piece, square)
-        return activity
+                if piece.color == chess.WHITE and not board.is_attacked_by(chess.WHITE, square):
+                    if board.is_attacked_by(chess.BLACK, square):
+                        score -= PIECE_VALUES[piece.piece_type]
+                elif piece.color == chess.BLACK and not board.is_attacked_by(chess.BLACK, square):
+                    if board.is_attacked_by(chess.WHITE, square):
+                        score += PIECE_VALUES[piece.piece_type]
+        return score
 
-    def piece_activity(self, piece, square):
-        if piece.piece_type == chess.KNIGHT:
-            return 8 if square in CENTER_8_SQUARES else 4
-        elif piece.piece_type == chess.BISHOP:
-            return 13  # Approximate control for a bishop (diagonals)
-        elif piece.piece_type == chess.ROOK:
-            return 14  # Approximate control for a rook (open file or rank)
-        elif piece.piece_type == chess.QUEEN:
-            return 27  # Approximate control for a queen
-        return 0  # For pawns or kings, this value can be adjusted
+
     
-    def piece_square_table(self, piece_type, square, color):
-        piece_square_tables = {
-            chess.PAWN: [
-                0, 0, 0, 0, 0, 0, 0, 0,
-                50, 50, 50, 50, 50, 50, 50, 50,
-                10, 10, 20, 30, 30, 20, 10, 10,
-                5, 5, 10, 25, 25, 10, 5, 5,
-                1, 1, 5, 25, 25, 5, 1, 1,
-                0, 0, 0, 20, 20, 0, 0, 0,
-                0, 0, 0, 0, 0, 0, 0, 0,
-                0, 0, 0, 0, 0, 0, 0, 0
-            ],
-            chess.KNIGHT: [
-                -50, -40, -30, -30, -30, -30, -40, -50,
-                -40, -20, 0, 5, 5, 0, -20, -40,
-                -30, 5, 10, 15, 15, 10, 5, -30,
-                -30, 0, 15, 20, 20, 15, 0, -30,
-                -30, 5, 15, 20, 20, 15, 5, -30,
-                -30, 0, 10, 15, 15, 10, 0, -30,
-                -40, -20, 0, 5, 5, 0, -20, -40,
-                -50, -40, -30, -30, -30, -30, -40, -50
-            ],
-            chess.BISHOP: [
-                -20, -10, 0, 5, 5, 0, -10, -20,
-                -10, 0, 10, 10, 10, 10, 0, -10,
-                0, 5, 10, 15, 15, 10, 5, 0,
-                5, 10, 15, 20, 20, 15, 10, 5,
-                5, 10, 15, 20, 20, 15, 10, 5,
-                0, 5, 10, 15, 15, 10, 5, 0,
-                -10, 0, 10, 10, 10, 10, 0, -10,
-                -20, -10, 0, 5, 5, 0, -10, -20
-            ],
-            chess.ROOK: [
-                0, 0, 0, 5, 5, 0, 0, 0,
-                0, 5, 10, 10, 10, 10, 5, 0,
-                0, 5, 10, 15, 15, 10, 5, 0,
-                0, 5, 15, 20, 20, 15, 5, 0,
-                0, 5, 15, 20, 20, 15, 5, 0,
-                0, 5, 10, 15, 15, 10, 5, 0,
-                0, 5, 10, 10, 10, 10, 5, 0,
-                0, 0, 0, 5, 5, 0, 0, 0
-            ],
-    
-            chess.QUEEN: [
-                -20, -10, 0, 5, 5, 0, -10, -20,
-                -10, 0, 10, 10, 10, 10, 0, -10,
-                0, 5, 10, 15, 15, 10, 5, 0,
-                5, 10, 15, 20, 20, 15, 10, 5,
-                5, 10, 15, 20, 20, 15, 10, 5,
-                0, 5, 10, 15, 15, 10, 5, 0,
-                -10, 0, 10, 10, 10, 10, 0, -10,
-                -20, -10, 0, 5, 5, 0, -10, -20
-            ],
-        }
-
-        table = piece_square_tables.get(piece_type, [0] * 64)  # Default to 0 for missing types
-        index = chess.square_mirror(square) if color == chess.BLACK else square
-        return table[index] / 100.0  # Normalize to smaller values if needed
-
-    def king_safety_evaluation(self, board: chess.Board) -> int:
-        king_safety_score = 0
-        
-        for square in chess.SQUARES:
-            piece = board.piece_at(square)
-            
-            if piece and piece.piece_type == chess.KING:
-                distance_from_center = abs(chess.square_rank(square) - 4) + abs(chess.square_file(square) - 4)
-                if board.is_check():  # Penalize if the king is in check
-                    king_safety_score -= 50
-                # King safety should consider nearby pawns
-                king_safety_score += self.evaluate_surrounding_pawns(board, square)
-                # Penalize kings that are open or exposed
-                king_safety_score -= 5 * distance_from_center
-        return king_safety_score
-
-    def evaluate_surrounding_pawns(self, board, square):
-        surrounding_pawns = 0
-        directions = [-9, -8, -7, -1, 1, 7, 8, 9]  # Example directions for surrounding squares
-
-        for direction in directions:
-            new_square = square + direction
-            if 0 <= new_square < 64:  # Ensure valid square index
-                piece = board.piece_at(new_square)
-                if piece and piece.piece_type == chess.PAWN and piece.color == board.turn:
-                    surrounding_pawns += 1
-
-        return surrounding_pawns
-    
-    def evaluate_piece_coordination(self, board):
-        evaluation = 0
-        for square in chess.SQUARES:
-            piece = board.piece_at(square)
-            if piece:
-                evaluation += self.piece_coordination_value(board, piece, square)
-        return evaluation
-
-    def piece_coordination_value(self, board, piece, square):
-        value = 0
-        if piece.piece_type == chess.ROOK or piece.piece_type == chess.QUEEN:
-            value += self.evaluate_rook_or_queen_coordination(board, piece, square)
-        return value
-
-    def evaluate_rook_or_queen_coordination(self, board, piece, square):
-        value = 0
-        file = chess.square_file(square)
-        rank = chess.square_rank(square)
-        
-        for target_square in chess.SQUARES:
-            if board.piece_at(target_square) and board.piece_at(target_square).color == piece.color:
-                if chess.square_file(target_square) == file or chess.square_rank(target_square) == rank:
-                    value += 1  
-        return value
-
 class Stockfish(AI):
     def __init__(self, color, name):
         super().__init__(color, name)

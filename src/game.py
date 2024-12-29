@@ -27,7 +27,7 @@ class Game:
         self.cases = [
             [HumanPlayer(chess.WHITE, 'Player'), DummyAI(chess.BLACK, 'DummyAI')],
             [DummyAI(chess.WHITE, 'Dummy AI'), IntermediateAI(chess.BLACK, 'Intermediate AI')],
-            [IntermediateAI(chess.WHITE, 'Intermediate AI1'), IntermediateAI(chess.BLACK, 'Intermediate AI2')],
+            [AdvancedAI(chess.WHITE, 'Advance AI1'), AdvancedAI(chess.BLACK, 'Advance AI2')],
             [AdvancedAI(chess.WHITE, 'AdvanceAI'), IntermediateAI(chess.BLACK, 'IntermediateAI')],
             [Stockfish(chess.WHITE, 'Stockfish1'), Stockfish(chess.BLACK, 'Stockfish2')],
         ]
@@ -60,8 +60,8 @@ class Game:
 
         #visualize
         self.animation_start_time = 0
-        self.animation_duration = 0.5
-        self.move_delay = 0.5
+        self.animation_duration = 0.3
+        self.move_delay = 0.3
 
         self.is_animating = False
         self.start_pos = None
@@ -89,6 +89,7 @@ class Game:
         if self.menu.in_menu or self.pick_level.in_pick or self.pausing:
             return
         if not self.running or self.board.is_game_over():
+            
             return
         if self.is_animating:
             return
